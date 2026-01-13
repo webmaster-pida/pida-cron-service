@@ -39,8 +39,9 @@ def send_abandoned_reminders():
                 # FILTRO: Creado hace más de 24h
                 if created_at < threshold:
                     
-                    # 3. OBTENER DOCUMENTO DEL USUARIO Y VERIFICAR UNUBSCRIBE
-                    user_ref = db.collection('customers').document(user.uid)
+                    # 3. OBTENER DOCUMENTO DE IDENTIDAD (Colección 'users')
+                    # Esta colección contiene a todos (VIPs y Clientes) y gestiona el Unsubscribe
+                    user_ref = db.collection('users').document(user.uid)
                     user_doc_snap = user_ref.get()
                     user_data = user_doc_snap.to_dict() or {}
 
@@ -48,19 +49,24 @@ def send_abandoned_reminders():
                     if user_data.get('marketing_opt_out') == True:
                         continue
 
-                    # 4. VERIFICAR SUSCRIPCIÓN EN FIRESTORE (Colección de la extensión de Stripe)
-                    sub_ref = user_ref.collection('subscriptions')
+                    # 4. VERIFICAR SUSCRIPCIÓN EN STRIPE (Colección 'customers')
+                    # Buscamos en la ruta de la extensión de Stripe para ver si ya paga
+                    cust_ref = db.collection('customers').document(user.uid)
+                    sub_ref = cust_ref.collection('subscriptions')
                     active_subs = sub_ref.where('status', 'in', ['active', 'trialing']).get()
 
                     if not active_subs:
                         # 5. VERIFICAR SI YA SE LE ENVIÓ EL RECORDATORIO (Prevención de Spam)
+                        # El log se guarda en 'users' para centralizar la actividad del investigador
                         log_ref = user_ref.collection('pida_logs').document('abandoned_reminder')
                         if not log_ref.get().exists:
                             
                             # 6. DETERMINAR MONEDA Y GENERAR SESIÓN DE STRIPE
-                            stripe_customer_id = user_data.get('stripeId') # ID de Stripe si ya existe
+                            # El stripeId técnico reside en la colección 'customers'
+                            cust_data = cust_ref.get().to_dict() or {}
+                            stripe_customer_id = cust_data.get('stripeId')
                             
-                            # Lógica de moneda: Si no hay país en el perfil, por defecto USD
+                            # Lógica de moneda: El país reside en el perfil global ('users')
                             country = user_data.get('country', 'US')
                             target_price = PRICE_BASIC_MXN if country == 'MX' else PRICE_BASIC_USD
 
@@ -88,7 +94,7 @@ def send_abandoned_reminders():
                                     'name': 'reminder-abandoned-reg',
                                     'data': {
                                         'displayName': user.display_name or 'Investigador',
-                                        'email': user.email, # IMPORTANTE: Para que el link de baja funcione
+                                        'email': user.email, # Indispensable para que el unsubscribe en 'users' funcione
                                         'checkoutUrl': checkout_url
                                     }
                                 }
