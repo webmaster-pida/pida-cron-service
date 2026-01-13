@@ -46,7 +46,7 @@ def send_abandoned_reminders():
                             'to': user.email,
                             'template': {
                                 'name': 'reminder-abandoned-reg',
-                                'data': { 'displayName': user.display_name or 'Investigador' }
+                                'data': { 'displayName': user.display_name or 'Investigador/a' }
                             }
                         })
                         emails_processed.append(user.email)
