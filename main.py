@@ -39,23 +39,29 @@ def send_abandoned_reminders():
                 # FILTRO: Creado hace más de 24h
                 if created_at < threshold:
                     
-                    # 3. VERIFICAR SUSCRIPCIÓN EN FIRESTORE (Colección de la extensión de Stripe)
-                    # La ruta estándar es customers/{uid}/subscriptions
-                    sub_ref = db.collection('customers').document(user.uid).collection('subscriptions')
+                    # 3. OBTENER DOCUMENTO DEL USUARIO Y VERIFICAR UNUBSCRIBE
+                    user_ref = db.collection('customers').document(user.uid)
+                    user_doc_snap = user_ref.get()
+                    user_data = user_doc_snap.to_dict() or {}
+
+                    # VALIDACIÓN CRÍTICA: Si el usuario se dio de baja, lo saltamos inmediatamente
+                    if user_data.get('marketing_opt_out') == True:
+                        continue
+
+                    # 4. VERIFICAR SUSCRIPCIÓN EN FIRESTORE (Colección de la extensión de Stripe)
+                    sub_ref = user_ref.collection('subscriptions')
                     active_subs = sub_ref.where('status', 'in', ['active', 'trialing']).get()
 
                     if not active_subs:
-                        # 4. VERIFICAR SI YA SE LE ENVIÓ EL RECORDATORIO (Prevención de Spam)
-                        log_ref = db.collection('customers').document(user.uid).collection('pida_logs').document('abandoned_reminder')
+                        # 5. VERIFICAR SI YA SE LE ENVIÓ EL RECORDATORIO (Prevención de Spam)
+                        log_ref = user_ref.collection('pida_logs').document('abandoned_reminder')
                         if not log_ref.get().exists:
                             
-                            # 5. DETERMINAR MONEDA Y GENERAR SESIÓN DE STRIPE
-                            # Intentamos obtener el país del perfil del usuario en Firestore
-                            user_doc = db.collection('customers').document(user.uid).get().to_dict() or {}
-                            stripe_customer_id = user_doc.get('stripeId') # ID de Stripe si ya existe
+                            # 6. DETERMINAR MONEDA Y GENERAR SESIÓN DE STRIPE
+                            stripe_customer_id = user_data.get('stripeId') # ID de Stripe si ya existe
                             
-                            # Lógica de moneda: Si no hay país, por defecto USD
-                            country = user_doc.get('country', 'US')
+                            # Lógica de moneda: Si no hay país en el perfil, por defecto USD
+                            country = user_data.get('country', 'US')
                             target_price = PRICE_BASIC_MXN if country == 'MX' else PRICE_BASIC_USD
 
                             try:
@@ -75,19 +81,20 @@ def send_abandoned_reminders():
                                 print(f"Error en Stripe para {user.email}: {e}")
                                 checkout_url = "https://pida-ai.com/#planes"
 
-                            # 6. ENVIAR CORREO (Escribir en colección 'mail' para la extensión)
+                            # 7. ENVIAR CORREO (Escribir en colección 'mail' para la extensión)
                             db.collection('mail').add({
                                 'to': user.email,
                                 'template': {
                                     'name': 'reminder-abandoned-reg',
                                     'data': {
                                         'displayName': user.display_name or 'Investigador',
+                                        'email': user.email, # IMPORTANTE: Para que el link de baja funcione
                                         'checkoutUrl': checkout_url
                                     }
                                 }
                             })
 
-                            # 7. MARCAR COMO ENVIADO
+                            # 8. MARCAR COMO ENVIADO EN LOS LOGS DEL USUARIO
                             log_ref.set({
                                 'sent_at': firestore.SERVER_TIMESTAMP,
                                 'email': user.email,
