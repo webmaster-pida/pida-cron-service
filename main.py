@@ -45,9 +45,11 @@ def stripe_webhook():
         customer_id = subscription['customer']
         
         # 1. Buscar al usuario en Firestore usando el ID de cliente de Stripe
+        # .get() devuelve una lista, por lo que quitamos .empty
         cust_query = db.collection('customers').where('stripeId', '==', customer_id).limit(1).get()
         
-        if not cust_query.empty:
+        # CORRECCIÓN AQUÍ: Usamos "if cust_query" para ver si la lista tiene datos
+        if cust_query:
             uid = cust_query[0].id
             
             # 2. Obtener datos del usuario
@@ -56,11 +58,10 @@ def stripe_webhook():
             user_name = user_doc.get('firstName', 'Investigador')
 
             # 3. ENVIAR CORREO DE BIENVENIDA (Al Usuario)
-            # Requiere que la extensión "Trigger Email" esté instalada en Firebase
             db.collection('mail').add({
                 'to': user_email,
                 'template': {
-                    'name': 'welcome-trial',  # Asegúrate que esta plantilla exista
+                    'name': 'welcome-trial',
                     'data': { 
                         'displayName': user_name
                     }
@@ -71,7 +72,7 @@ def stripe_webhook():
             db.collection('mail').add({
                 'to': ADMIN_EMAIL,
                 'template': {
-                    'name': 'admin-notification', # Asegúrate que esta plantilla exista
+                    'name': 'admin-notification',
                     'data': {
                         'customerName': f"{user_name} {user_doc.get('lastName', '')}",
                         'customerEmail': user_email,
@@ -81,6 +82,8 @@ def stripe_webhook():
                 }
             })
             print(f"✅ Notificaciones enviadas para: {user_email}")
+        else:
+             print(f"⚠️ No se encontró usuario para stripeId: {customer_id}")
 
     return jsonify({"status": "success"}), 200
 
