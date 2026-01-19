@@ -39,53 +39,65 @@ def stripe_webhook():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+    # ... (resto del código igual) ...
+
     # Lógica cuando se crea una suscripción nueva
     if event['type'] == 'customer.subscription.created':
         subscription = event['data']['object']
         customer_id = subscription['customer']
         
-        # 1. Buscar al usuario en Firestore usando el ID de cliente de Stripe
-        # .get() devuelve una lista, por lo que quitamos .empty
+        # 1. Buscar al usuario en Firestore
         cust_query = db.collection('customers').where('stripeId', '==', customer_id).limit(1).get()
         
-        # CORRECCIÓN AQUÍ: Usamos "if cust_query" para ver si la lista tiene datos
         if cust_query:
-            uid = cust_query[0].id
+            # Obtenemos el documento y sus datos
+            customer_snapshot = cust_query[0]
+            uid = customer_snapshot.id
+            customer_data = customer_snapshot.to_dict() # <--- Leemos datos de 'customers'
             
-            # 2. Obtener datos del usuario
+            # 2. Obtener datos del perfil en 'users'
             user_doc = db.collection('users').document(uid).get().to_dict() or {}
-            user_email = user_doc.get('email', subscription.get('customer_email'))
+            
+            # --- LÓGICA DE RESCATE DE EMAIL (MEJORADA) ---
+            # Intentamos obtener el email en este orden de prioridad:
+            # 1. Del perfil de usuario (users)
+            # 2. Del documento de cliente (customers) <-- Aquí es donde lo tienes seguro
+            # 3. Del objeto de suscripción de Stripe
+            user_email = user_doc.get('email') or customer_data.get('email') or subscription.get('customer_email')
+            
             user_name = user_doc.get('firstName', 'Investigador')
 
-            # 3. ENVIAR CORREO DE BIENVENIDA (Al Usuario)
-            db.collection('mail').add({
-                'to': user_email,
-                'template': {
-                    'name': 'welcome-trial',
-                    'data': { 
-                        'displayName': user_name
+            # Validación final para no enviar a 'None'
+            if user_email:
+                # 3. ENVIAR CORREO DE BIENVENIDA (Al Usuario)
+                db.collection('mail').add({
+                    'to': user_email,
+                    'template': {
+                        'name': 'welcome-trial',
+                        'data': { 
+                            'displayName': user_name
+                        }
                     }
-                }
-            })
+                })
 
-            # 4. ENVIAR NOTIFICACIÓN (Al Admin)
-            db.collection('mail').add({
-                'to': ADMIN_EMAIL,
-                'template': {
-                    'name': 'admin-notification',
-                    'data': {
-                        'customerName': f"{user_name} {user_doc.get('lastName', '')}",
-                        'customerEmail': user_email,
-                        'planName': "Nueva Suscripción",
-                        'date': datetime.now().strftime("%d/%m/%Y %H:%M")
+                # 4. ENVIAR NOTIFICACIÓN (Al Admin)
+                db.collection('mail').add({
+                    'to': ADMIN_EMAIL,
+                    'template': {
+                        'name': 'admin-notification',
+                        'data': {
+                            'customerName': f"{user_name} {user_doc.get('lastName', '')}",
+                            'customerEmail': user_email,
+                            'planName': "Nueva Suscripción",
+                            'date': datetime.now().strftime("%d/%m/%Y %H:%M")
+                        }
                     }
-                }
-            })
-            print(f"✅ Notificaciones enviadas para: {user_email}")
+                })
+                print(f"✅ Notificaciones enviadas para: {user_email}")
+            else:
+                print(f"⚠️ Error: Se encontró el usuario {uid} pero NO tiene email registrado en ninguna colección.")
+                
         else:
              print(f"⚠️ No se encontró usuario para stripeId: {customer_id}")
 
     return jsonify({"status": "success"}), 200
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
