@@ -103,7 +103,7 @@ def stripe_webhook():
             else:
                 print(f"⚠️ Error: Se encontró el usuario {uid} pero NO tiene email registrado en ninguna colección.")
                 
-            else:
+        else:
                 print(f"⚠️ No se encontró usuario para stripeId: {customer_id}")
 
     return jsonify({"status": "success"}), 200
