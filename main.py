@@ -55,17 +55,22 @@ def stripe_webhook():
             uid = customer_snapshot.id
             customer_data = customer_snapshot.to_dict() # <--- Leemos datos de 'customers'
             
-            # 2. Obtener datos del perfil en 'users'
+            # Obtener perfil de usuario (Firestore)
             user_doc = db.collection('users').document(uid).get().to_dict() or {}
             
-            # --- LÓGICA DE RESCATE DE EMAIL (MEJORADA) ---
-            # Intentamos obtener el email en este orden de prioridad:
-            # 1. Del perfil de usuario (users)
-            # 2. Del documento de cliente (customers) <-- Aquí es donde lo tienes seguro
-            # 3. Del objeto de suscripción de Stripe
-            user_email = user_doc.get('email') or customer_data.get('email') or subscription.get('customer_email')
-            
-            user_name = user_doc.get('firstName', 'Investigador')
+            # --- CORRECCIÓN NOMBRE: Obtener nombre real desde Stripe ---
+            stripe_name = None
+            try:
+                # Recuperamos el objeto cliente de Stripe para tener el nombre exacto
+                stripe_customer = stripe.Customer.retrieve(new_customer_id)
+                stripe_name = stripe_customer.name
+            except Exception: pass
+
+            # Prioridad: 1. Nombre en Stripe, 2. Nombre en Firebase, 3. Default
+            user_name = stripe_name or user_doc.get('displayName') or user_doc.get('firstName') or 'Investigador'
+
+            # Definir email final
+            final_email = user_doc.get('email') or customer_data.get('email') or stripe_email
 
             # Validación final para no enviar a 'None'
             if user_email:
