@@ -39,8 +39,6 @@ def stripe_webhook():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-    # ... (resto del código igual) ...
-
     # Lógica cuando se crea una suscripción nueva
     if event['type'] == 'customer.subscription.created':
         subscription = event['data']['object']
