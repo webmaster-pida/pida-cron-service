@@ -126,8 +126,7 @@ def stripe_webhook():
                             'name': 'reminder-abandoned-reg',
                             'data': { 
                                 'displayName': user_name,
-                                'errorMessage': error_message,
-                                'checkoutLink': "https://pida-ai.com/"
+                                'checkoutUrl': "https://pida-ai.com/"  # <--- ¡CORREGIDO AQUÍ!
                             }
                         }
                     })
@@ -188,7 +187,7 @@ def recover_carts():
                                     'name': 'reminder-abandoned-reg',
                                     'data': { 
                                         'displayName': user_name,
-                                        'checkoutLink': "https://pida-ai.com/"
+                                        'checkoutUrl': "https://pida-ai.com/"  # <--- ¡CORREGIDO AQUÍ!
                                     }
                                 }
                             })
