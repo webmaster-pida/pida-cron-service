@@ -1,10 +1,12 @@
 import os
 import stripe
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, request
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as firebase_auth
+from google.cloud.firestore_v1.base_query import FieldFilter # Import actualizado para evitar Warnings
 
 # 1. INICIALIZACIÓN
 app = Flask(__name__)
@@ -48,11 +50,22 @@ def stripe_webhook():
         subscription = event['data']['object']
         customer_id = subscription['customer']
         
-        # Buscar al usuario en Firestore
-        cust_query = db.collection('customers').where('stripeId', '==', customer_id).limit(1).get()
+        # Buscar al usuario en Firestore (CON BUCLE DE REINTENTO ANTI RACE-CONDITION)
+        max_retries = 3
+        customer_snapshot = None
         
-        if cust_query:
-            customer_snapshot = cust_query[0]
+        for attempt in range(max_retries):
+            # Sintaxis actualizada usando FieldFilter
+            cust_query = db.collection('customers').where(filter=FieldFilter('stripeId', '==', customer_id)).limit(1).get()
+            
+            if cust_query:
+                customer_snapshot = cust_query[0]
+                break # Lo encontró, salimos del bucle
+            
+            print(f"⏳ Intento {attempt + 1}: Esperando a que el frontend guarde el stripeId en Firestore...")
+            time.sleep(2) # Espera 2 segundos antes de volver a intentar
+        
+        if customer_snapshot:
             uid = customer_snapshot.id
             customer_data = customer_snapshot.to_dict()
             
@@ -98,7 +111,7 @@ def stripe_webhook():
                 print(f"⚠️ Error: Se encontró el usuario {uid} pero NO tiene email registrado en ninguna colección.")
                 
         else:
-            print(f"⚠️ No se encontró usuario para stripeId: {customer_id}")
+            print(f"⚠️ No se encontró usuario para stripeId: {customer_id} después de {max_retries} intentos.")
 
     # -------------------------------------------------------------
     # B. Lógica cuando un pago falla (CARRITO ABANDONADO POR RECHAZO)
@@ -109,7 +122,8 @@ def stripe_webhook():
         error_message = intent.get('last_payment_error', {}).get('message', 'Problema con la tarjeta de crédito')
 
         if customer_id:
-            cust_query = db.collection('customers').where('stripeId', '==', customer_id).limit(1).get()
+            # Sintaxis actualizada usando FieldFilter
+            cust_query = db.collection('customers').where(filter=FieldFilter('stripeId', '==', customer_id)).limit(1).get()
             
             if cust_query:
                 customer_snapshot = cust_query[0]
